@@ -1,0 +1,1781 @@
+kind: Template
+apiVersion: template.openshift.io/v1
+metadata:
+  name: wso2is
+  namespace: wso2
+  selfLink: /apis/template.openshift.io/v1/namespaces/wso2/templates/wso2is
+  uid: 373c59dc-7f1e-4322-8ef6-29d194d67433
+  resourceVersion: '51905877'
+  creationTimestamp: '2020-08-20T12:02:55Z'
+  annotations:
+    description: >-
+      WSO2 Identity Server is an API-driven open source IAM product designed to
+      help you build effective CIAM solutions. It is based on open standards
+      such as SAML, OAuth and OIDC.
+
+      This template create WSO2 Identity Server v5.9.0 cluster. Parameters can
+      be used to change the number of nodes and other setting releted to
+      deployment.
+    openshift.io/display-name: WSO2 Identity Server
+    openshift.io/documentation-url: 'https://is.docs.wso2.com/en/latest/'
+    openshift.io/provider-display-name: 'WSO2, Inc.'
+    openshift.io/support-url: 'https://wso2.com/'
+objects:
+  - apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: '${WSO2_IS_SERVICE_ACCOUNT_NAME}'
+  - apiVersion: security.openshift.io/v1
+    kind: SecurityContextConstraints
+    metadata:
+      name: '${NAME}-scc-account-privileged'
+    runAsUser:
+      type: RunAsAny
+    seLinuxContext:
+      type: RunAsAny
+    users:
+      - >-
+        system:serviceaccount:${OPENSHIFT_PROJECT_NAME}:${WSO2_IS_SERVICE_ACCOUNT_NAME}
+    volumes:
+      - '*'
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: endpoints-reader-role
+    rules:
+      - apiGroups:
+          - ''
+        resources:
+          - endpoints
+        verbs:
+          - get
+          - list
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: endpoints-reader-role-wso2-binding
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: endpoints-reader-role
+    subjects:
+      - kind: ServiceAccount
+        name: '${WSO2_IS_SERVICE_ACCOUNT_NAME}'
+        namespace: '${OPENSHIFT_PROJECT_NAME}'
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: ${NAME}-userstore
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 2Gi
+      volumeMode: Filesystem
+      selector:
+        matchLabels:
+          volumeName: '${USER_STORE_PV}'
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: identity-server-bin
+    data:
+      wso2server.sh: >-
+        #!/bin/sh
+
+        #
+        ----------------------------------------------------------------------------
+
+        #  Copyright 2005-2012 WSO2, Inc. http://www.wso2.org
+
+        #
+
+        #  Licensed under the Apache License, Version 2.0 (the "License");
+
+        #  you may not use this file except in compliance with the License.
+
+        #  You may obtain a copy of the License at
+
+        #
+
+        #      http://www.apache.org/licenses/LICENSE-2.0
+
+        #
+
+        #  Unless required by applicable law or agreed to in writing, software
+
+        #  distributed under the License is distributed on an "AS IS" BASIS,
+
+        #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+        implied.
+
+        #  See the License for the specific language governing permissions and
+
+        #  limitations under the License.
+
+
+        #
+        ----------------------------------------------------------------------------
+
+        # Main Script for the WSO2 Carbon Server
+
+        #
+
+        # Environment Variable Prequisites
+
+        #
+
+        #   CARBON_HOME   Home of WSO2 Carbon installation. If not set I will 
+        try
+
+        #                   to figure it out.
+
+        #
+
+        #   JAVA_HOME       Must point at your Java Development Kit
+        installation.
+
+        #
+
+        #   JAVA_OPTS       (Optional) Java runtime options used when the
+        commands
+
+        #                   is executed.
+
+        #
+
+        # NOTE: Borrowed generously from Apache Tomcat startup scripts.
+
+        #
+        -----------------------------------------------------------------------------
+
+
+        # OS specific support.  $var _must_ be set to either true or false.
+
+        #ulimit -n 100000
+
+        cygwin=false;
+
+        darwin=false;
+
+        os400=false;
+
+        mingw=false;
+
+        case "`uname`" in
+
+        CYGWIN*) cygwin=true;;
+
+        MINGW*) mingw=true;;
+
+        OS400*) os400=true;;
+
+        Darwin*) darwin=true
+                if [ -z "$JAVA_VERSION" ] ; then
+                    JAVA_VERSION="CurrentJDK"
+                  else
+                    echo "Using Java version: $JAVA_VERSION"
+                  fi
+                  if [ -z "$JAVA_HOME" ] ; then
+                    JAVA_HOME=/System/Library/Frameworks/JavaVM.framework/Versions/${JAVA_VERSION}/Home
+                  fi
+                  ;;
+        esac
+
+
+        # resolve links - $0 may be a softlink
+
+        PRG="$0"
+
+
+        while [ -h "$PRG" ]; do
+          ls=`ls -ld "$PRG"`
+          link=`expr "$ls" : '.*-> \(.*\)$'`
+          if expr "$link" : '.*/.*' > /dev/null; then
+            PRG="$link"
+          else
+            PRG=`dirname "$PRG"`/"$link"
+          fi
+        done
+
+
+        # Get standard environment variables
+
+        PRGDIR=`dirname "$PRG"`
+
+
+        # Only set CARBON_HOME if not already set
+
+        [ -z "$CARBON_HOME" ] && CARBON_HOME=`cd "$PRGDIR/.." ; pwd`
+
+
+        # Set AXIS2_HOME. Needed for One Click JAR Download
+
+        AXIS2_HOME="$CARBON_HOME"
+
+
+        # For Cygwin, ensure paths are in UNIX format before anything is touched
+
+        if $cygwin; then
+          [ -n "$JAVA_HOME" ] && JAVA_HOME=`cygpath --unix "$JAVA_HOME"`
+          [ -n "$CARBON_HOME" ] && CARBON_HOME=`cygpath --unix "$CARBON_HOME"`
+          [ -n "$AXIS2_HOME" ] && CARBON_HOME=`cygpath --unix "$CARBON_HOME"`
+        fi
+
+
+        # For OS400
+
+        if $os400; then
+          # Set job priority to standard for interactive (interactive - 6) by using
+          # the interactive priority - 6, the helper threads that respond to requests
+          # will be running at the same priority as interactive jobs.
+          COMMAND='chgjob job('$JOBNAME') runpty(6)'
+          system $COMMAND
+
+          # Enable multi threading
+          QIBM_MULTI_THREADED=Y
+          export QIBM_MULTI_THREADED
+        fi
+
+
+        # For Migwn, ensure paths are in UNIX format before anything is touched
+
+        if $mingw ; then
+          [ -n "$CARBON_HOME" ] &&
+            CARBON_HOME="`(cd "$CARBON_HOME"; pwd)`"
+          [ -n "$JAVA_HOME" ] &&
+            JAVA_HOME="`(cd "$JAVA_HOME"; pwd)`"
+          [ -n "$AXIS2_HOME" ] &&
+            CARBON_HOME="`(cd "$CARBON_HOME"; pwd)`"
+          # TODO classpath?
+        fi
+
+
+        if [ -z "$JAVACMD" ] ; then
+          if [ -n "$JAVA_HOME"  ] ; then
+            if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
+              # IBM's JDK on AIX uses strange locations for the executables
+              JAVACMD="$JAVA_HOME/jre/sh/java"
+            else
+              JAVACMD="$JAVA_HOME/bin/java"
+            fi
+          else
+            JAVACMD=java
+          fi
+        fi
+
+
+        if [ ! -x "$JAVACMD" ] ; then
+          echo "Error: JAVA_HOME is not defined correctly."
+          echo " CARBON cannot execute $JAVACMD"
+          exit 1
+        fi
+
+
+        # if JAVA_HOME is not set we're not happy
+
+        if [ -z "$JAVA_HOME" ]; then
+          echo "You must set the JAVA_HOME variable before running CARBON."
+          exit 1
+        fi
+
+
+        if [ -e "$CARBON_HOME/wso2carbon.pid" ]; then
+          PID=`cat "$CARBON_HOME"/wso2carbon.pid`
+        fi
+
+
+        # ----- Process the input command
+        ----------------------------------------------
+
+        args=""
+
+        for c in $*
+
+        do
+            if [ "$c" = "--debug" ] || [ "$c" = "-debug" ] || [ "$c" = "debug" ]; then
+                  CMD="--debug"
+                  continue
+            elif [ "$CMD" = "--debug" ]; then
+                  if [ -z "$PORT" ]; then
+                        PORT=$c
+                  fi
+            elif [ "$c" = "--stop" ] || [ "$c" = "-stop" ] || [ "$c" = "stop" ]; then
+                  CMD="stop"
+            elif [ "$c" = "--start" ] || [ "$c" = "-start" ] || [ "$c" = "start" ]; then
+                  CMD="start"
+            elif [ "$c" = "--version" ] || [ "$c" = "-version" ] || [ "$c" = "version" ]; then
+                  CMD="version"
+            elif [ "$c" = "--restart" ] || [ "$c" = "-restart" ] || [ "$c" = "restart" ]; then
+                  CMD="restart"
+            elif [ "$c" = "--test" ] || [ "$c" = "-test" ] || [ "$c" = "test" ]; then
+                  CMD="test"
+            else
+                args="$args $c"
+            fi
+        done
+
+
+        if [ "$CMD" = "--debug" ]; then
+          if [ "$PORT" = "" ]; then
+            echo " Please specify the debug port after the --debug option"
+            exit 1
+          fi
+          if [ -n "$JAVA_OPTS" ]; then
+            echo "Warning !!!. User specified JAVA_OPTS will be ignored, once you give the --debug option."
+          fi
+          CMD="RUN"
+          JAVA_OPTS="-Xdebug -Xnoagent -Djava.compiler=NONE -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=$PORT"
+          echo "Please start the remote debugging client to continue..."
+        elif [ "$CMD" = "start" ]; then
+          if [ -e "$CARBON_HOME/wso2carbon.pid" ]; then
+            if  ps -p $PID > /dev/null ; then
+              echo "Process is already running"
+              exit 0
+            fi
+          fi
+          export CARBON_HOME="$CARBON_HOME"
+        # using nohup sh to avoid erros in solaris OS.TODO
+          nohup sh "$CARBON_HOME"/bin/wso2server.sh $args > /dev/null 2>&1 &
+          exit 0
+        elif [ "$CMD" = "stop" ]; then
+          export CARBON_HOME="$CARBON_HOME"
+          kill -term `cat "$CARBON_HOME"/wso2carbon.pid`
+          exit 0
+        elif [ "$CMD" = "restart" ]; then
+          export CARBON_HOME="$CARBON_HOME"
+          kill -term `cat "$CARBON_HOME"/wso2carbon.pid`
+          process_status=0
+          pid=`cat "$CARBON_HOME"/wso2carbon.pid`
+          while [ "$process_status" -eq "0" ]
+          do
+                sleep 1;
+                ps -p$pid 2>&1 > /dev/null
+                process_status=$?
+          done
+
+        # using nohup sh to avoid erros in solaris OS.TODO
+          nohup sh "$CARBON_HOME"/bin/wso2server.sh $args > /dev/null 2>&1 &
+          exit 0
+        elif [ "$CMD" = "test" ]; then
+            JAVACMD="exec "$JAVACMD""
+        elif [ "$CMD" = "version" ]; then
+          cat "$CARBON_HOME"/bin/version.txt
+          cat "$CARBON_HOME"/bin/wso2carbon-version.txt
+          exit 0
+        fi
+
+
+        # ---------- Handle the SSL Issue with proper JDK version
+        --------------------
+
+        java_version=$("$JAVACMD" -version 2>&1 | awk -F '"' '/version/ {print
+        $2}')
+
+        java_version_formatted=$(echo "$java_version" | awk -F.
+        '{printf("%02d%02d",$1,$2);}')
+
+        if [ $java_version_formatted -lt 0107 ] || [ $java_version_formatted -gt
+        1100 ]; then
+          echo " Starting WSO2 Carbon (in unsupported JDK)"
+          echo " [ERROR] CARBON is supported only on JDK 1.7, 1.8, 9, 10 and 11"
+        fi
+
+
+        CARBON_XBOOTCLASSPATH=""
+
+        for f in "$CARBON_HOME"/lib/xboot/*.jar
+
+        do
+            if [ "$f" != "$CARBON_HOME/lib/xboot/*.jar" ];then
+                CARBON_XBOOTCLASSPATH="$CARBON_XBOOTCLASSPATH":$f
+            fi
+        done
+
+
+
+        CARBON_CLASSPATH=""
+
+        if [ -e "$JAVA_HOME/lib/tools.jar" ]; then
+            CARBON_CLASSPATH="$JAVA_HOME/lib/tools.jar"
+        fi
+
+        for f in "$CARBON_HOME"/bin/*.jar
+
+        do
+            if [ "$f" != "$CARBON_HOME/bin/*.jar" ];then
+                CARBON_CLASSPATH="$CARBON_CLASSPATH":$f
+            fi
+        done
+
+        for t in "$CARBON_HOME"/lib/*.jar
+
+        do
+            CARBON_CLASSPATH="$CARBON_CLASSPATH":$t
+        done
+
+
+
+        # For Cygwin, switch paths to Windows format before running java
+
+        if $cygwin; then
+          JAVA_HOME=`cygpath --absolute --windows "$JAVA_HOME"`
+          CARBON_HOME=`cygpath --absolute --windows "$CARBON_HOME"`
+          AXIS2_HOME=`cygpath --absolute --windows "$CARBON_HOME"`
+          CLASSPATH=`cygpath --path --windows "$CLASSPATH"`
+          CARBON_CLASSPATH=`cygpath --path --windows "$CARBON_CLASSPATH"`
+          CARBON_XBOOTCLASSPATH=`cygpath --path --windows "$CARBON_XBOOTCLASSPATH"`
+        fi
+
+
+        # ----- Execute The Requested Command
+        -----------------------------------------
+
+
+        echo JAVA_HOME environment variable is set to $JAVA_HOME
+
+        echo CARBON_HOME environment variable is set to "$CARBON_HOME"
+
+
+        cd "$CARBON_HOME"
+
+
+        TMP_DIR="$CARBON_HOME"/tmp
+
+        if [ -d "$TMP_DIR" ]; then
+
+        rm -rf "$TMP_DIR"/*
+
+        fi
+
+
+        START_EXIT_STATUS=121
+
+        status=$START_EXIT_STATUS
+
+
+        if [ -z "$JVM_MEM_OPTS" ]; then
+          java_version=$("$JAVACMD" -version 2>&1 | awk -F '"' '/version/ {print $2}')
+          JVM_MEM_OPTS="-Xms512m -Xmx2048m"
+          if [ "$java_version" \< "1.8" ]; then
+              JVM_MEM_OPTS="$JVM_MEM_OPTS -XX:MaxPermSize=256m"
+          fi
+        fi
+
+        echo "Using Java memory options: $JVM_MEM_OPTS"
+
+
+        #To monitor a Carbon server in remote JMX mode on linux host machines,
+        set the below system property.
+
+        #   -Djava.rmi.server.hostname="your.IP.goes.here"
+
+
+        JAVA_VER_BASED_OPTS=""
+
+
+        NASHRON_ARGS=""
+
+
+        if [ $java_version_formatted -ge 1100 ]; then
+        NASHRON_ARGS="--no-deprecation-warning"
+            JAVA_VER_BASED_OPTS="--add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens java.rmi/sun.rmi.transport=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED"
+        fi
+
+
+
+        while [ "$status" = "$START_EXIT_STATUS" ]
+
+        do
+            $JAVACMD \
+            -Xbootclasspath/a:"$CARBON_XBOOTCLASSPATH" \
+            $JVM_MEM_OPTS \
+            -XX:+HeapDumpOnOutOfMemoryError \
+            -XX:HeapDumpPath="$CARBON_HOME/repository/logs/heap-dump.hprof" \
+            $JAVA_OPTS \
+            -Dcom.sun.management.jmxremote \
+            -classpath "$CARBON_CLASSPATH" \
+            $JAVA_VER_BASED_OPTS \
+            -Djava.io.tmpdir="$CARBON_HOME/tmp" \
+            -Dcatalina.base="$CARBON_HOME/lib/tomcat" \
+            -Dwso2.server.standalone=true \
+            -Dcarbon.registry.root=/ \
+            -Djava.command="$JAVACMD" \
+            -Dcarbon.home="$CARBON_HOME" \
+            -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager \
+            -Dcarbon.config.dir.path="$CARBON_HOME/repository/conf" \
+            -Djava.util.logging.config.file="$CARBON_HOME/repository/conf/etc/logging-bridge.properties" \
+            -Dcomponents.repo="$CARBON_HOME/repository/components/plugins" \
+            -Dconf.location="$CARBON_HOME/repository/conf"\
+            -Dcom.atomikos.icatch.file="$CARBON_HOME/lib/transactions.properties" \
+            -Dcom.atomikos.icatch.hide_init_file_path=true \
+            -Dorg.apache.jasper.compiler.Parser.STRICT_QUOTE_ESCAPING=false \
+            -Dorg.apache.jasper.runtime.BodyContentImpl.LIMIT_BUFFER=true \
+            -Dcom.sun.jndi.ldap.connect.pool.authentication=simple  \
+            -Dcom.sun.jndi.ldap.connect.pool.timeout=3000  \
+            -Dorg.terracotta.quartz.skipUpdateCheck=true \
+            -Djava.security.egd=file:/dev/./urandom \
+            -Dfile.encoding=UTF8 \
+            -Djava.net.preferIPv4Stack=true \
+            -Dcom.ibm.cacheLocalHost=true \
+            -DworkerNode=false \
+            -DenableCorrelationLogs=false \
+            -Dhttpclient.hostnameVerifier="DefaultAndLocalhost" \
+            -Dorg.apache.xml.security.ignoreLineBreaks=false \
+            -Dnashorn.args="$NASHRON_ARGS" \
+            -Dcarbon.new.config.dir.path="$CARBON_HOME/repository/resources/conf" \
+            org.wso2.carbon.bootstrap.Bootstrap $*
+            -javaagent:/home/wso2carbon/prometheus/jmx_prometheus_javaagent-0.12.0.jar=2222:/home/wso2carbon/prometheus/config.yaml \
+            status=$?
+        done
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: identity-server-conf
+    data:
+      deployment.toml: >-
+        # Deployment config for identity server deployment
+
+        [server]
+
+        hostname = "$env{HOST_NAME_WITH_CLUSTER_IP}"
+
+        node_ip = "$env{NODE_IP}"
+
+        #base_path = "https://$ref{server.hostname}:${carbon.management.port}"
+
+
+
+        [super_admin]
+
+        username = "IdamAdmin"
+
+        password = "$secret{admin_password}"
+
+        create_admin_account = true
+
+
+        [user_store]
+
+        type = "database_unique_id"
+
+
+        [database.user]
+
+        url =
+        "jdbc:postgresql://database.postgres2.svc.cluster.local:5432/wso2is?currentSchema=userdb"
+
+        username = "wso2idam"
+
+        password = "$secret{postgres_database_password}"
+
+        driver = "org.postgresql.Driver"
+
+        [database.user.pool_options]
+
+        maxActive = "80"
+
+        maxWait = "60000"
+
+        minIdle = "5"
+
+        testOnBorrow = true
+
+        validationQuery="SELECT 1; COMMIT"
+
+        validationInterval="30000"
+
+        defaultAutoCommit=false
+
+
+        [transport.https.properties]
+
+        proxyPort="443"
+
+
+        [database.identity_db]
+
+        url =
+        "jdbc:postgresql://database.postgres2.svc.cluster.local:5432/wso2is?currentSchema=identity"
+
+        username = "wso2idam"
+
+        password = "$secret{postgres_database_password}"
+
+        driver = "org.postgresql.Driver"
+
+        [database.identity_db.pool_options]
+
+        maxActive = "80"
+
+        maxWait = "60000"
+
+        minIdle = "5"
+
+        testOnBorrow = true
+
+        validationQuery="SELECT 1; COMMIT"
+
+        validationInterval="30000"
+
+        defaultAutoCommit=false
+
+        commitOnReturn="true"
+
+        [database.shared_db]
+
+        url =
+        "jdbc:postgresql://database.postgres2.svc.cluster.local:5432/wso2is?currentSchema=shared"
+
+        username = "wso2idam"
+
+        password = "$secret{postgres_database_password}"
+
+        driver = "org.postgresql.Driver"
+
+        [database.shared_db.pool_options]
+
+        maxActive = "80"
+
+        maxWait = "60000"
+
+        minIdle = "5"
+
+        testOnBorrow = true
+
+        validationQuery="SELECT 1; COMMIT"
+
+        validationInterval="30000"
+
+        defaultAutoCommit=false
+
+        commitOnReturn="true"
+
+        [database.bps_database]
+
+        url =
+        "jdbc:postgresql://database.postgres2.svc.cluster.local:5432/wso2is?currentSchema=bps"
+
+        username = "wso2idam"
+
+        password = "$secret{postgres_database_password}"
+
+        driver = "org.postgresql.Driver"
+
+        [database.bps_database.pool_options]
+
+        maxActive = "80"
+
+        maxWait = "60000"
+
+        minIdle = "5"
+
+        testOnBorrow = true
+
+        validationQuery="SELECT 1; COMMIT"
+
+        validationInterval="30000"
+
+        defaultAutoCommit=false
+
+        commitOnReturn="true"
+
+
+        [[datasource]]
+
+        id = "WSO2ConsentDS"
+
+        url =
+        "jdbc:postgresql://database.postgres2.svc.cluster.local:5432/wso2is?currentSchema=consent"
+
+        username = "wso2idam"
+
+        password = "$secret{postgres_database_password}"
+
+        driver = "org.postgresql.Driver"
+
+        pool_options.validationQuery="SELECT 1; COMMIT"
+
+        pool_options.maxActive=50
+
+        pool_options.maxWait = 60000 # wait in milliseconds
+
+        pool_options.testOnBorrow = true
+
+        pool_options.jmxEnabled = false
+
+        pool_options.defaultAutoCommit = false
+
+        pool_options.commitOnReturn = true
+
+
+        [authentication.consent]
+
+        data_source="jdbc/WSO2ConsentDS"
+
+
+        [keystore.primary]
+
+        file_name = "stcpaykeystore.jks"
+
+        type = "JKS"
+
+        password = "$secret{primary_keystore_password}"
+
+        alias = "primary"
+
+        key_password = "$secret{primary_key_password}"
+
+        [keystore.internal] 
+
+        file_name = "internalkeystore.jks"
+
+        type = "JKS"
+
+        password = "$secret{internal_keystore_password}"
+
+        alias = "internal"
+
+        key_password = "$secret{internal_key_password}"
+
+        [transport.https.sslHostConfig.certificate.properties]
+
+        certificateKeystoreFile =
+        "${carbon.home}/repository/resources/security/secondarykeystore.jks"
+
+        certificateKeystorePassword = "$secret{certificate_keystore_password}"
+
+        certificateKeystoreType = "JKS"
+
+        certificateKeyAlias = "ssl"
+
+        certificateKeyPassword = "$secret{certificate_key_password}"
+
+
+        [hazelcast]
+
+        "hazelcast.shutdownhook.enabled" = "false"
+
+        "hazelcast.logging.type"= "log4j"
+
+
+        [clustering]
+
+        membership_scheme="kubernetes"
+
+        domain="wso2.carbon.domain"
+
+        properties.membershipSchemeClassName="org.wso2.carbon.membership.scheme.kubernetes.KubernetesMembershipScheme"
+
+        properties.KUBERNETES_NAMESPACE="wso2"
+
+        properties.KUBERNETES_SERVICES="wso2is-pattern-ha-service"
+
+        properties.KUBERNETES_MASTER_SKIP_SSL_VERIFICATION="true"
+
+        properties.USE_DNS="false"
+
+
+
+        [secrets]
+
+        admin_password  =
+        "SzFIUJvhpPj6JUebI5EwCMNkqAAo7cCsKVjT77BNv7hiqBeMHZox26d46hF+/d1yzlCejTVezudapCX9O6eKQ5q5uo5Z2XIzoD2vkEfCMU0+Snxxcn/0+XQYGjOTEZ3n+GECH5t5pKZTtjroe3XLwA/8BVbe+8d0gsXYtrUDLcyq9KYvMhTvrO2vI0u0IhGHw+6aSw2GOGLdNDP5q4O6BEQdEtBJpwqGf8GuZFu8W+56SHuQIZbSB6hztG0l5j2q0K17hcoPW69n8dJudXsA9w7w6IG797CWvWD9P5Jan1WHXp9+eSU99REvD1AHpxqje/x84F4hKFD/yCWGLN+DzA=="
+
+        primary_keystore_password  =
+        "WSAAajpicsK/xnTp1cnT12NvAFZJj9uD3LZbfQOrIR2a3qCOT0Xoq/2PY695YCD7TMvPCdv4GAS1Ag4NSwU4GXizDO31p+au5mbCRC3FO0mMv3TNVKx2GkA4Tbcodt2ffD2JJ17Bmc4o7dEQwV8l2JVAwhwHEE7s56GBox9Ng1ji91cA4v1TfGg7ipLZ/hUHRVhnrbupF4iIRsEbadpTZx7Oxcz/KRBtEA0vi0u6Te5HxvxYs4+E2xjMnhFwIxwcoBjRho94OQ5rkd/BLylPOP0+rPODtYr9m0sxh6ZHYGZYNYZ6akU9blSrXJU2xbnmTMWn/HmWN7ZlZB5KBotb2Q=="
+
+        primary_key_password  =
+        "BUDd45LfDJavmRmQeuCq1DKCIriVKhpEt2B17Q8k3ZeTZxa3fGKFCkTVX8JBOlvIU1NLtIil5BHui7LVGjJQ2SrA+SjRrLiLQYb9IX2lBE1hCj1rwC4uvQIDNokRFNOQT3BB+JnsbDZsHzujoUhxUSGyddNQ5/IXsaA4Q6LLd57nT5kpMnuOJLu06SkffKvMQKmOljZDzbPAg1/UAe+yu+byYvTkv5uKDQlko6TVQtSlTW3FpQijc68Ws2djm1t98bmNN2jXBwtobtRqLYs9k4zwaTVIUny7OZhVdD/bpU30RghO8bzXh+n23WqpF2NS5tvAepwhac/SndlPf+x4dg=="
+
+        internal_keystore_password  =
+        "iDxE9/KML4xUMy3tSWwN253kW0/ULmX4KngofVIINhpJ+RlM9DFUMlCNnoS825JQLrMU0SIYnh4OxmmKF0jeRpLBhN6YE2fH518QPRQHrPZip9v8RhnvUQ7hjndsjfHpqdCqUmnv4S0H+GFR/SgoUv4n35MId0vbMoho831Q9/3+nibEIdQgGDIrVXy7Q7T90rrYT83wEQ+gIHZuxrzh+/OSP0Xd99LKOHxSWHYXHsOk9HPsLLzclfXOyny7D4EdrsWYXtAPRSYBubueHFDx7BGPAJL73qnb04tpCak2SSmIEw94rr5W57fHE4LD4Uznt2/lP7BpM02uxWBkDoNRgg=="
+
+        internal_key_password  =
+        "bihKZUQOFF66wDyZ2joOXkSVPPiv+VOA3iHN4CFEm/pmUqkp9ZbhLfe2RjCjRA/FOAOW0o6MFmaOC58w67UTxUb968MRpn/4Gg5do63EpTwWmz1tcMqToerSiozJsbKftV7pc9ucfheipqWPgmAk8mNNluqevCQddjjGYvH3cfaij/JHik26BcGBGMvZeka4GlsJNoqlTlVHC25z99am5HvGaXpWCfrBhgZmlpBnL288sdD1s/cMdjOQEzsBh67H7TZMAQNxOBob2xCTiPlTUAXgkWzWd3A8uagFKgFxMTgtF8N2HS+diO2CkcpXC6zsZqQOJ11PQYsOKDvknXAVhQ=="
+
+        certificate_keystore_password  =
+        "NEJbWcK+K3xCJ76a3VxJnmgMA2oTIBbRWK/8UZAvJAxxVuMNBjssL0J1TjAVbP1geysDjGRVq41tdCDTHgBZWBpx7FdA+8Mgr4WBZ9nTnbn9U4gAB3gfKz6n8Vg5ZVAoW64kfWwLfhyQJrUthcDUAz2jIsgqzT0gkcLkJdT4pmgBDCWA0zfV/9Mp1AoQrabzk3OIeu2bVGsC/UfmT8TVQS02RaLxCucUSL7sYgleTSwmJnD2emUEjWLjVOb7ymbGAnUIMCAHkbtTTzKhlBQOnaZPZXaaNQXHBhtUri8Kbwdrtci3D9QWvYrTH2O9q27L+hWv3WyEoiukgWwZwzEnyQ=="
+
+        certificate_key_password  =
+        "bMe0Ux96CJLclTTV9ewi8LHP+fO5Zwolt6FKGPlNG0J15DTtgfWLcZHrAYNruwr80gKsN72Lnh9IKuJsP1SYmlULpy+1zxcQFSUoslALYVVs7ljAk8b5JB0dpdtzFr64PyGlRrCYmCuXZVDNHfBqkjOZ5pLvcDxGISCpBtZ2MiqbFTNXR3vYkg8xN3F/7/uCqQYbJ/ltiT5UwWefSMWhi1P4tbYkxVMla0ytIxP4iMLAlrbQaXX8kZndQz16+D1gbzqRnnbpKFhyq1nmO5UZBCFAdIZDFzmzBwlZOqAqUFXTy0RlTQnmF98eg8SaD5SDbzhgDJyO5yMYpOiq91mIZw=="
+
+        postgres_database_password  =
+        "QDoCzUg+98/kXRvWQRJawx2vStwVIgdqssW/X/TbA+hozfyE3J/Rr2NZ5lTbwKoJgJ7OzWP/5bn+8x4wLh/lH3BAcydfcB/sdlwC3SeaOgbA2uYMLX50+4V3bZeSxn28ZjLDaYvRV64dWjiO8t5MtNwVT0bZ2Ua1LQpq5OPo2OZuWVba9JRCYIDyFxDUqVxdNJBUOxmOTuZazjITCLsqCgbVVxpByQM0DJ1m6zSZCRUBxbD2hdg5nHknbtMMx1HMlJISpjFCTDqqK8HIMHuDN+bWw8c1nKqKt7AMVcaAjCqWinooFzIqPNLcgwlq5Y+upAIWxgcpKDKSAWiU8WY9qA=="
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: identity-server-log-conf
+    data:
+      log4j2.properties: >-
+        # log4j2 config for identity server deployment
+
+        # list of all appenders
+
+        #add entry "syslog" to use the syslog appender
+
+        appenders = CARBON_CONSOLE, CARBON_LOGFILE, AUDIT_LOGFILE,
+        ATOMIKOS_LOGFILE, CARBON_TRACE_LOGFILE, DELETE_EVENT_LOGFILE,
+        TRANSACTION_LOGFILE, osgi
+
+        #, syslog
+
+        # CARBON_CONSOLE is set to be a ConsoleAppender using a PatternLayout.
+
+        appender.CARBON_CONSOLE.type = Console
+
+        appender.CARBON_CONSOLE.name = CARBON_CONSOLE
+
+        appender.CARBON_CONSOLE.layout.type = PatternLayout
+
+        appender.CARBON_CONSOLE.layout.pattern = [%d] [%X{Correlation-ID}] %5p
+        {%c} - %mm%ex%n
+
+        appender.CARBON_CONSOLE.filter.threshold.type = ThresholdFilter
+
+        appender.CARBON_CONSOLE.filter.threshold.level = DEBUG
+
+
+        # CARBON_LOGFILE is set to be a DailyRollingFileAppender using a
+        PatternLayout.
+
+        appender.CARBON_LOGFILE.type = RollingFile
+
+        appender.CARBON_LOGFILE.name = CARBON_LOGFILE
+
+        appender.CARBON_LOGFILE.fileName =
+        ${sys:carbon.home}/repository/logs/wso2carbon.log
+
+        appender.CARBON_LOGFILE.filePattern =
+        ${sys:carbon.home}/repository/logs/wso2carbon-%d{MM-dd-yyyy}.%i.log
+
+        appender.CARBON_LOGFILE.layout.type = PatternLayout
+
+        appender.CARBON_LOGFILE.layout.pattern = TID: [%tenantId] [%appName]
+        [%d] [%X{Correlation-ID}] %5p {%c} - %mm%ex%n
+
+        appender.CARBON_LOGFILE.policies.type = Policies
+
+        appender.CARBON_LOGFILE.policies.time.type = TimeBasedTriggeringPolicy
+
+        appender.CARBON_LOGFILE.policies.time.interval = 1
+
+        appender.CARBON_LOGFILE.policies.time.modulate = true
+
+        appender.CARBON_LOGFILE.policies.size.type = SizeBasedTriggeringPolicy
+
+        appender.CARBON_LOGFILE.policies.size.size=10MB
+
+        appender.CARBON_LOGFILE.strategy.type = DefaultRolloverStrategy
+
+        appender.CARBON_LOGFILE.strategy.max = 20
+
+        appender.CARBON_LOGFILE.filter.threshold.type = ThresholdFilter
+
+        appender.CARBON_LOGFILE.filter.threshold.level = DEBUG
+
+
+        # Appender config to AUDIT_LOGFILE
+
+        appender.AUDIT_LOGFILE.type = RollingFile
+
+        appender.AUDIT_LOGFILE.name = AUDIT_LOGFILE
+
+        appender.AUDIT_LOGFILE.fileName =
+        ${sys:carbon.home}/repository/logs/audit.log
+
+        appender.AUDIT_LOGFILE.filePattern =
+        ${sys:carbon.home}/repository/logs/audit-%d{MM-dd-yyyy}.%i.log
+
+        appender.AUDIT_LOGFILE.layout.type = PatternLayout
+
+        appender.AUDIT_LOGFILE.layout.pattern = TID: [%tenantId] [%d]
+        [%X{Correlation-ID}] %5p {%c} - %mm%ex%n
+
+        appender.AUDIT_LOGFILE.policies.type = Policies
+
+        appender.AUDIT_LOGFILE.policies.time.type = TimeBasedTriggeringPolicy
+
+        appender.AUDIT_LOGFILE.policies.time.interval = 1
+
+        appender.AUDIT_LOGFILE.policies.time.modulate = true
+
+        appender.AUDIT_LOGFILE.policies.size.type = SizeBasedTriggeringPolicy
+
+        appender.AUDIT_LOGFILE.policies.size.size=10MB
+
+        appender.AUDIT_LOGFILE.strategy.type = DefaultRolloverStrategy
+
+        appender.AUDIT_LOGFILE.strategy.max = 20
+
+        appender.AUDIT_LOGFILE.filter.threshold.type = ThresholdFilter
+
+        appender.AUDIT_LOGFILE.filter.threshold.level = INFO
+
+
+        # Appender config to send Atomikos transaction logs to new log file
+        tm.out.
+
+        appender.ATOMIKOS_LOGFILE.type = RollingFile
+
+        appender.ATOMIKOS_LOGFILE.name = ATOMIKOS_LOGFILE
+
+        appender.ATOMIKOS_LOGFILE.fileName =
+        ${sys:carbon.home}/repository/logs/tm.out
+
+        appender.ATOMIKOS_LOGFILE.filePattern =
+        ${sys:carbon.home}/repository/logs/tm-%d{MM-dd-yyyy}.%i.out
+
+        appender.ATOMIKOS_LOGFILE.layout.type = PatternLayout
+
+        appender.ATOMIKOS_LOGFILE.layout.pattern = [%d] [%tenantId] %5p {%c} -
+        %mm%ex%n
+
+        appender.ATOMIKOS_LOGFILE.policies.type = Policies
+
+        appender.ATOMIKOS_LOGFILE.policies.time.type = TimeBasedTriggeringPolicy
+
+        appender.ATOMIKOS_LOGFILE.policies.time.interval = 1
+
+        appender.ATOMIKOS_LOGFILE.policies.time.modulate = true
+
+        appender.ATOMIKOS_LOGFILE.policies.size.type = SizeBasedTriggeringPolicy
+
+        appender.ATOMIKOS_LOGFILE.policies.size.size=10MB
+
+        appender.ATOMIKOS_LOGFILE.strategy.type = DefaultRolloverStrategy
+
+        appender.ATOMIKOS_LOGFILE.strategy.max = 20
+
+
+        # Appender config to CARBON_TRACE_LOGFILE
+
+        appender.CARBON_TRACE_LOGFILE.type = RollingFile
+
+        appender.CARBON_TRACE_LOGFILE.name = CARBON_TRACE_LOGFILE
+
+        appender.CARBON_TRACE_LOGFILE.fileName =
+        ${sys:carbon.home}/repository/logs/wso2carbon-trace-messages.log
+
+        appender.CARBON_TRACE_LOGFILE.filePattern =
+        ${sys:carbon.home}/repository/logs/wso2carbon-trace-messages-%d{MM-dd-yyyy}.%i.log
+
+        appender.CARBON_TRACE_LOGFILE.layout.type = PatternLayout
+
+        appender.CARBON_TRACE_LOGFILE.layout.pattern = [%d] [%tenantId] %5p {%c}
+        - %mm%ex%n
+
+        appender.CARBON_TRACE_LOGFILE.policies.type = Policies
+
+        appender.CARBON_TRACE_LOGFILE.policies.time.type =
+        TimeBasedTriggeringPolicy
+
+        appender.CARBON_TRACE_LOGFILE.policies.time.interval = 1
+
+        appender.CARBON_TRACE_LOGFILE.policies.time.modulate = true
+
+        appender.CARBON_TRACE_LOGFILE.policies.size.type =
+        SizeBasedTriggeringPolicy
+
+        appender.CARBON_TRACE_LOGFILE.policies.size.size=10MB
+
+        appender.CARBON_TRACE_LOGFILE.strategy.type = DefaultRolloverStrategy
+
+        appender.CARBON_TRACE_LOGFILE.strategy.max = 20
+
+
+        # Appender config to put correlation Log.
+
+        appender.CORRELATION.type = RollingFile
+
+        appender.CORRELATION.name = CORRELATION
+
+        appender.CORRELATION.fileName
+        =${sys:carbon.home}/repository/logs/${instance.log}/correlation.log
+
+        appender.CORRELATION.filePattern
+        =${sys:carbon.home}/repository/logs/${instance.log}/correlation-%d{MM-dd-yyyy}.%i.log
+
+        appender.CORRELATION.layout.type = PatternLayout
+
+        appender.CORRELATION.layout.pattern = %d{yyyy-MM-dd
+        HH:mm:ss,SSS}|%X{Correlation-ID}|%t|%mm%n
+
+        appender.CORRELATION.policies.type = Policies
+
+        appender.CORRELATION.policies.time.type = TimeBasedTriggeringPolicy
+
+        appender.CORRELATION.policies.time.interval = 1
+
+        appender.CORRELATION.policies.time.modulate = true
+
+        appender.CORRELATION.policies.size.type = SizeBasedTriggeringPolicy
+
+        appender.CORRELATION.policies.size.size=10MB
+
+        appender.CORRELATION.strategy.type = DefaultRolloverStrategy
+
+        appender.CORRELATION.strategy.max = 20
+
+        appender.CORRELATION.filter.threshold.type = ThresholdFilter
+
+        appender.CORRELATION.filter.threshold.level = INFO
+
+        # Uncomment the below lines to use the Syslog Appender
+
+        #appender.syslog.type = Syslog
+
+        #appender.syslog.name = Syslog
+
+        #appender.syslog.host = localhost
+
+        #appender.syslog.port = 514
+
+        #appender.syslog.layout.type = PatternLayout
+
+        #appender.syslog.layout.pattern = [%d] [%tenantId] %5p {%c} - %mm%ex%n
+
+        #appender.syslog.filter.threshold.type = ThresholdFilter
+
+        #appender.syslog.filter.threshold.level = DEBUG
+
+        appender.osgi.type = PaxOsgi
+
+        appender.osgi.name = PaxOsgi
+
+        appender.osgi.filter = *
+
+        loggers = AUDIT_LOG, trace-messages, org-apache-coyote, com-hazelcast,
+        Owasp-CsrfGuard, org-apache-axis2-wsdl-codegen-writer-PrettyPrinter,
+        org-apache-axis2-clustering, org-apache-catalina, org-apache-tomcat,
+        org-wso2-carbon-apacheds, org-apache-directory-server-ldap,
+        org-apache-directory-server-core-event, com-atomikos, org-quartz,
+        org-apache-jackrabbit-webdav, org-apache-juddi,
+        org-apache-commons-digester-Digester,
+        org-apache-jasper-compiler-TldLocationsCache, org-apache-qpid,
+        org-apache-qpid-server-Main, qpid-message,
+        qpid-message-broker-listening, org-apache-tiles,
+        org-apache-commons-httpclient, org-apache-solr,
+        me-prettyprint-cassandra-hector-TimingLogger,
+        org-apache-axis-enterprise, org-apache-directory-shared-ldap,
+        org-apache-directory-server-ldap-handlers,
+        org-apache-directory-shared-ldap-entry-DefaultServerAttribute,
+        org-apache-directory-server-core-DefaultDirectoryService,
+        org-apache-directory-shared-ldap-ldif-LdifReader,
+        org-apache-directory-server-ldap-LdapProtocolHandler,
+        org-apache-directory-server-core,
+        org-apache-directory-server-ldap-LdapSession, DataNucleus, Datastore,
+        Datastore-Schema, JPOX-Datastore, JPOX-Plugin, JPOX-MetaData,
+        JPOX-Query, JPOX-General, JPOX-Enhancer, org-apache-hadoop-hive, hive,
+        ExecMapper, ExecReducer, net-sf-ehcache, axis2Deployment, equinox,
+        tomcat2, StAXDialectDetector, org-apache-directory-api,
+        org-apache-directory-api-ldap-model-entry, TRANSACTION_LOGGER,
+        DELETE_EVENT_LOGGER, org-springframework,
+        org-opensaml-xml-security-credential-criteria,
+        org-wso2-carbon-user-core, org-wso2-carbon-identity,
+        org-wso2-carbon-identity-sso-saml
+
+        logger.AUDIT_LOG.name = AUDIT_LOG
+
+        logger.AUDIT_LOG.level = INFO
+
+        logger.AUDIT_LOG.appenderRef.AUDIT_LOGFILE.ref = AUDIT_LOGFILE
+
+        logger.AUDIT_LOG.additivity = false
+
+        logger.trace-messages.name = trace.messages
+
+        logger.trace-messages.level = TRACE
+
+        logger.trace-messages.appenderRef.CARBON_TRACE_LOGFILE.ref =
+        CARBON_TRACE_LOGFILE
+
+        logger.org-apache-coyote.name = org.apache.coyote
+
+        logger.org-apache-coyote.level = WARN
+
+        logger.com-hazelcast.name = com.hazelcast
+
+        logger.com-hazelcast.level = ERROR
+
+        logger.Owasp-CsrfGuard.name = Owasp.CsrfGuard
+
+        logger.Owasp-CsrfGuard.level = WARN
+
+        logger.org-apache-axis2-wsdl-codegen-writer-PrettyPrinter.name =
+        org.apache.axis2.wsdl.codegen.writer.PrettyPrinter
+
+        logger.org-apache-axis2-wsdl-codegen-writer-PrettyPrinter.level = ERROR
+
+        logger.org-apache-axis2-wsdl-codegen-writer-PrettyPrinter.appenderRef.CARBON_LOGFILE.ref
+        = CARBON_LOGFILE
+
+        logger.org-apache-axis2-clustering.name = org.apache.axis2.clustering
+
+        logger.org-apache-axis2-clustering.level = INFO
+
+        logger.org-apache-axis2-clustering.additivity = false
+
+        logger.org-apache.name = org.apache
+
+        logger.org-apache.level = INFO
+
+        logger.org-apache.additivity = false
+
+        logger.org-apache.appenderRef.CARBON_LOGFILE.ref = CARBON_LOGFILE
+
+        logger.org-apache-catalina.name = org.apache.catalina
+
+        logger.org-apache-catalina.level = ERROR
+
+        logger.org-apache-tomcat.name = org.apache.tomcat
+
+        logger.org-apache-tomcat.level = INFO
+
+        logger.org-wso2-carbon-apacheds.name = org.wso2.carbon.apacheds
+
+        logger.org-wso2-carbon-apacheds.level = WARN
+
+        logger.org-apache-directory-server-ldap.name =
+        org.apache.directory.server.ldap
+
+        logger.org-apache-directory-server-ldap.level = ERROR
+
+        logger.org-apache-directory-server-core-event.name =
+        org.apache.directory.server.core.event
+
+        logger.org-apache-directory-server-core-event.level = WARN
+
+        logger.com-atomikos.name = com.atomikos
+
+        logger.com-atomikos.level = INFO
+
+        logger.com-atomikos.additivity = false
+
+        logger.com-atomikos.appenderRef.ATOMIKOS_LOGFILE.ref = ATOMIKOS_LOGFILE
+
+        logger.org-quartz.name = org.quartz
+
+        logger.org-quartz.level = WARN
+
+        logger.org-apache-jackrabbit-webdav.name = org.apache.jackrabbit.webdav
+
+        logger.org-apache-jackrabbit-webdav.level = WARN
+
+        logger.org-apache-juddi.name = org.apache.juddi
+
+        logger.org-apache-juddi.level = ERROR
+
+        logger.org-apache-commons-digester-Digester.name =
+        org.apache.commons.digester.Digester
+
+        logger.org-apache-commons-digester-Digester.level = WARN
+
+        logger.org-apache-jasper-compiler-TldLocationsCache.name =
+        org.apache.jasper.compiler.TldLocationsCache
+
+        logger.org-apache-jasper-compiler-TldLocationsCache.level = WARN
+
+        logger.org-apache-qpid.name = org.apache.qpid
+
+        logger.org-apache-qpid.level = WARN
+
+        logger.org-apache-qpid-server-Main.name = org.apache.qpid.server.Main
+
+        logger.org-apache-qpid-server-Main.level = INFO
+
+        logger.qpid-message.name = qpid.message
+
+        logger.qpid-message.level = WARN
+
+        logger.qpid-message-broker-listening.name =
+        qpid.message.broker.listening
+
+        logger.qpid-message-broker-listening.level = INFO
+
+        logger.org-apache-tiles.name = org.apache.tiles
+
+        logger.org-apache-tiles.level = WARN
+
+        logger.org-apache-commons-httpclient.name =
+        org.apache.commons.httpclient
+
+        logger.org-apache-commons-httpclient.level = ERROR
+
+        logger.org-apache-solr.name = org.apache.solr
+
+        logger.org-apache-solr.level = ERROR
+
+        logger.me-prettyprint-cassandra-hector-TimingLogger.name =
+        me.prettyprint.cassandra.hector.TimingLogger
+
+        logger.me-prettyprint-cassandra-hector-TimingLogger.level = ERROR
+
+        logger.org-wso2.name = org.wso2
+
+        logger.org-wso2.level = ERROR
+
+        logger.org-apache-axis-enterprise.name = org.apache.axis2.enterprise
+
+        logger.org-apache-axis-enterprise.level = FATAL
+
+        logger.org-apache-axis-enterprise.appenderRef.CARBON_LOGFILE.ref =
+        CARBON_LOGFILE
+
+        logger.org-apache-directory-shared-ldap.name =
+        org.apache.directory.shared.ldap
+
+        logger.org-apache-directory-shared-ldap.level = WARN
+
+        logger.org-apache-directory-shared-ldap.appenderRef.CARBON_LOGFILE.ref =
+        CARBON_LOGFILE
+
+        logger.org-apache-directory-server-ldap-handlers.name =
+        org.apache.directory.server.ldap.handlers
+
+        logger.org-apache-directory-server-ldap-handlers.level = WARN
+
+        logger.org-apache-directory-server-ldap-handlers.appenderRef.CARBON_LOGFILE.ref
+        = CARBON_LOGFILE
+
+        #Following are to remove false error messages from startup (IS)
+
+        logger.org-apache-directory-shared-ldap-entry-DefaultServerAttribute.name
+        = org.apache.directory.shared.ldap.entry.DefaultServerAttribute
+
+        logger.org-apache-directory-shared-ldap-entry-DefaultServerAttribute.level
+        = FATAL
+
+        logger.org-apache-directory-shared-ldap-entry-DefaultServerAttribute.appenderRef.CARBON_LOGFILE.ref
+        = CARBON_LOGFILE
+
+        logger.org-apache-directory-server-core-DefaultDirectoryService.name =
+        org.apache.directory.server.core.DefaultDirectoryService
+
+        logger.org-apache-directory-server-core-DefaultDirectoryService.level =
+        ERROR
+
+        logger.org-apache-directory-server-core-DefaultDirectoryService.appenderRef.CARBON_LOGFILE.ref
+        = CARBON_LOGFILE
+
+        logger.org-apache-directory-shared-ldap-ldif-LdifReader.name =
+        org.apache.directory.shared.ldap.ldif.LdifReader
+
+        logger.org-apache-directory-shared-ldap-ldif-LdifReader.level = ERROR
+
+        logger.org-apache-directory-shared-ldap-ldif-LdifReader.appenderRef.CARBON_LOGFILE.ref
+        = CARBON_LOGFILE
+
+        logger.org-apache-directory-server-ldap-LdapProtocolHandler.name =
+        org.apache.directory.server.ldap.LdapProtocolHandler
+
+        logger.org-apache-directory-server-ldap-LdapProtocolHandler.level =
+        ERROR
+
+        logger.org-apache-directory-server-ldap-LdapProtocolHandler.appenderRef.CARBON_LOGFILE.ref
+        = CARBON_LOGFILE
+
+        logger.org-apache-directory-server-core.name =
+        org.apache.directory.server.core
+
+        logger.org-apache-directory-server-core.level = ERROR
+
+        logger.org-apache-directory-server-core.appenderRef.CARBON_LOGFILE.ref =
+        CARBON_LOGFILE
+
+        logger.org-apache-directory-server-ldap-LdapSession.name =
+        org.apache.directory.server.ldap.LdapSession
+
+        logger.org-apache-directory-server-ldap-LdapSession.level = Error
+
+        logger.org-apache-directory-server-ldap-LdapSession.appenderRef.CARBON_LOGFILE.ref
+        = CARBON_LOGFILE
+
+        logger.correlation.name = correlation
+
+        logger.correlation.level = INFO
+
+        logger.correlation.appenderRef.CORRELATION.ref = CORRELATION
+
+        logger.correlation.additivity = false
+
+        #Hive Related Log configurations
+
+        logger.DataNucleus.name = DataNucleus
+
+        logger.DataNucleus.level = ERROR
+
+        logger.Datastore.name = Datastore
+
+        logger.Datastore.level = ERROR
+
+        logger.Datastore-Schema.name = Datastore.Schema
+
+        logger.Datastore-Schema.level = ERROR
+
+        logger.JPOX-Datastore.name = JPOX.Datastore
+
+        logger.JPOX-Datastore.level = ERROR
+
+        logger.JPOX-Plugin.name = JPOX.Plugin
+
+        logger.JPOX-Plugin.level = ERROR
+
+        logger.JPOX-MetaData.name = JPOX.MetaData
+
+        logger.JPOX-MetaData.level = ERROR
+
+        logger.JPOX-Query.name = JPOX.Query
+
+        logger.JPOX-Query.level = ERROR
+
+        logger.JPOX-General.name = JPOX.General
+
+        logger.JPOX-General.level = ERROR
+
+        logger.JPOX-Enhancer.name = JPOX.Enhancer
+
+        logger.JPOX-Enhancer.level = ERROR
+
+        logger.org-apache-hadoop-hive.name = org.apache.hadoop.hive
+
+        logger.org-apache-hadoop-hive.level = WARN
+
+        logger.hive.name = hive
+
+        logger.hive.level = WARN
+
+        logger.ExecMapper.name = ExecMapper
+
+        logger.ExecMapper.level = WARN
+
+        logger.ExecReducer.name = ExecReducer
+
+        logger.ExecReducer.level = WARN
+
+        logger.net-sf-ehcache.name = net.sf.ehcache
+
+        logger.net-sf-ehcache.level = ERROR
+
+        logger.axis2Deployment.name = org.apache.axis2.deployment
+
+        logger.axis2Deployment.level = WARN
+
+        logger.equinox.name = org.eclipse.equinox
+
+        logger.equinox.level = FATAL
+
+        logger.tomcat2.name = tomcat
+
+        logger.tomcat2.level = FATAL
+
+        logger.StAXDialectDetector.name =
+        org.apache.axiom.util.stax.dialect.StAXDialectDetector
+
+        logger.StAXDialectDetector.level = ERROR
+
+        # root loggers
+
+        #uncomment the last line to add syslog appender to the root loggers
+
+        rootLogger.level = INFO
+
+        rootLogger.appenderRef.CARBON_CONSOLE.ref = CARBON_CONSOLE
+
+        rootLogger.appenderRef.CARBON_LOGFILE.ref = CARBON_LOGFILE
+
+        rootLogger.appenderRef.PaxOsgi.ref = PaxOsgi
+
+        #rootLogger.appenderRef.syslog.ref = syslog
+
+        logger.org-apache-directory-api.name=org.apache.directory.api
+
+        logger.org-apache-directory-api.level=ERROR
+
+        logger.org-apache-directory-api-ldap-model-entry.name=org.apache.directory.api.ldap.model.entry
+
+        logger.org-apache-directory-api-ldap-model-entry.level=FATAL
+
+        logger.org-springframework.name=org.springframework
+
+        logger.org-springframework.level=WARN
+
+        logger.org-opensaml-xml-security-credential-criteria.name=org.opensaml.xml.security.credential.criteria
+
+        logger.org-opensaml-xml-security-credential-criteria.level=WARN
+
+        logger.org-wso2-carbon-user-core.name=org.wso2.carbon.user.core
+
+        logger.org-wso2-carbon-user-core.level=INFO
+
+        logger.org-wso2-carbon-identity.name=org.wso2.carbon.identity
+
+        logger.org-wso2-carbon-identity.level=INFO
+
+        logger.org-wso2-carbon-identity-sso-saml.name=org.wso2.carbon.identity.sso.saml
+
+        logger.org-wso2-carbon-identity-sso-saml.level=INFO
+
+        #logger.org-wso2-carbon-identity-application.name=org.wso2.carbon.identity.application
+
+        #logger.org-wso2-carbon-identity-application.level=DEBUG
+
+        #logger.org-wso2-carbon-identity-application-authentication-framework.name=org.wso2.carbon.identity.application.authentication.framework
+
+        #logger.org-wso2-carbon-identity-application-authentication-framework.level=DEBUG
+
+        #logger.org-wso2-carbon-identity-mgt.name=org.wso2.carbon.identity.mgt
+
+        #logger.org-wso2-carbon-identity-mgt.level=DEBUG
+
+        #logger.org-wso2-carbon-identity-oauth2.name=org.wso2.carbon.identity.oauth2
+
+        #logger.org-wso2-carbon-identity-oauth2.level=DEBUG
+
+        #logger.org-wso2-carbon-identity-scim.name=org.wso2.carbon.identity.scim
+
+        #logger.org-wso2-carbon-identity-scim.level=DEBUG
+
+        #logger.org-wso2-carbon-identity-mgt.name=org.wso2.carbon.identity.mgt
+
+        #logger.org-wso2-carbon-identity-mgt.level=DEBUG
+
+        #logger.org-wso2-carbon-idp-mgt.name=org.wso2.carbon.idp.mgt
+
+        #logger.org-wso2-carbon-idp-mgt.level=DEBUG
+
+        #logger.org-wso2-carbon-identity-provisioning.name=org.wso2.carbon.identity.provisioning
+
+        #logger.org-wso2-carbon-identity-provisioning.level=DEBUG
+
+        #logger.org-wso2-carbon-identity-user-account-association.name=org.wso2.carbon.identity.user.account.association
+
+        #logger.org-wso2-carbon-identity-user-account-association.level=DEBUG
+
+        #logger.org-wso2-carbon-identity-user-profile-mgt.name=org.wso2.carbon.identity.user.profile.mgt
+
+        #logger.org-wso2-carbon-identity-user-profile-mgt.level=DEBUG
+
+        #logger.org-wso2-carbon-security.name=org.wso2.carbon.security
+
+        #logger.org-wso2-carbon-security.level=DEBUG
+
+        #logger.org-wso2-carbon-identity-sso-agent.name=org.wso2.carbon.identity.sso.agent
+
+        #logger.org-wso2-carbon-identity-sso-agent.level=DEBUG
+
+        #logger.org-wso2-carbon-identity-core.name=org.wso2.carbon.identity.core
+
+        #logger.org-wso2-carbon-identity-core.level=DEBUG
+
+        # Appender config to CARBON_TRACE_LOGFILE
+
+        appender.DELETE_EVENT_LOGFILE.type = RollingFile
+
+        appender.DELETE_EVENT_LOGFILE.name = DELETE_EVENT_LOGFILE
+
+        appender.DELETE_EVENT_LOGFILE.fileName =
+        ${sys:carbon.home}/repository/logs/delete-event.log
+
+        appender.DELETE_EVENT_LOGFILE.filePattern
+        =${sys:carbon.home}/repository/logs/delete-event-%d{MM-dd-yyyy}.%i.log
+
+        appender.DELETE_EVENT_LOGFILE.layout.type = PatternLayout
+
+        appender.DELETE_EVENT_LOGFILE.layout.pattern = %mm %n
+
+        appender.DELETE_EVENT_LOGFILE.policies.type = Policies
+
+        appender.DELETE_EVENT_LOGFILE.policies.time.type =
+        TimeBasedTriggeringPolicy
+
+        appender.DELETE_EVENT_LOGFILE.policies.time.interval = 1
+
+        appender.DELETE_EVENT_LOGFILE.policies.time.modulate = true
+
+        appender.DELETE_EVENT_LOGFILE.policies.size.type =
+        SizeBasedTriggeringPolicy
+
+        appender.DELETE_EVENT_LOGFILE.policies.size.size=10MB
+
+        appender.DELETE_EVENT_LOGFILE.strategy.type = DefaultRolloverStrategy
+
+        appender.DELETE_EVENT_LOGFILE.strategy.max = 20
+
+        appender.DELETE_EVENT_LOGFILE.threshold.type = ThresholdFilter
+
+        appender.DELETE_EVENT_LOGFILE.threshold.level = INFO
+
+        appender.TRANSACTION_LOGFILE.type = RollingFile
+
+        appender.TRANSACTION_LOGFILE.name = TRANSACTION_LOGFILE
+
+        appender.TRANSACTION_LOGFILE.fileName =
+        ${sys:carbon.home}/repository/logs/transaction.log
+
+        appender.TRANSACTION_LOGFILE.filePattern =
+        ${sys:carbon.home}/repository/logs/transaction-%d{MM-dd-yyyy}.%i.log
+
+        appender.TRANSACTION_LOGFILE.layout.type = PatternLayout
+
+        appender.TRANSACTION_LOGFILE.layout.pattern = [%d] - %mm %n
+
+        appender.TRANSACTION_LOGFILE.policies.type = Policies
+
+        appender.TRANSACTION_LOGFILE.policies.time.type =
+        TimeBasedTriggeringPolicy
+
+        appender.TRANSACTION_LOGFILE.policies.time.interval = 1
+
+        appender.TRANSACTION_LOGFILE.policies.time.modulate = true
+
+        appender.TRANSACTION_LOGFILE.policies.size.type =
+        SizeBasedTriggeringPolicy
+
+        appender.TRANSACTION_LOGFILE.policies.size.size=10MB
+
+        appender.TRANSACTION_LOGFILE.strategy.type = DefaultRolloverStrategy
+
+        appender.TRANSACTION_LOGFILE.strategy.max = 20
+
+        appender.TRANSACTION_LOGFILE.threshold.type = ThresholdFilter
+
+        appender.TRANSACTION_LOGFILE.threshold.level = INFO
+
+        logger.TRANSACTION_LOGGER.name=TRANSACTION_LOGGER
+
+        logger.TRANSACTION_LOGGER.level=INFO
+
+        logger.TRANSACTION_LOGGER.appenderRef.TRANSACTION_LOGFILE.ref =
+        TRANSACTION_LOGFILE
+
+        logger.DELETE_EVENT_LOGGER.name=DELETE_EVENT_LOGGER
+
+        logger.DELETE_EVENT_LOGGER.level=INFO
+
+        logger.DELETE_EVENT_LOGGER.appenderRef.TRANSACTION_LOGFILE.ref =
+        TRANSACTION_LOGFILE
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: identity-secret-conf
+    data:
+      secret-conf.properties: >-
+
+        keystore.identity.alias=internal
+
+        keystore.identity.type=JKS
+
+        keystore.identity.key.secretProvider=org.wso2.carbon.securevault.DefaultSecretCallbackHandler
+
+        carbon.secretProvider=org.wso2.securevault.secret.handler.SecretManagerSecretCallbackHandler
+
+        keystore.identity.store.password=identity.store.password
+
+        secretRepositories=file
+
+        secVault.enabled=true
+
+        secretRepositories.file.provider=org.wso2.securevault.secret.repository.FileBaseSecretRepositoryProvider
+
+        keystore.identity.store.secretProvider=org.wso2.carbon.securevault.DefaultSecretCallbackHandler
+
+        keystore.identity.key.password=identity.key.password
+
+        secretRepositories.file.location=repository/conf/security/cipher-text.properties
+
+        keystore.identity.location=/home/wso2carbon/wso2is-5.10.0/repository/resources/security/internalkeystore.jks
+  - apiVersion: apps.openshift.io/v1
+    kind: DeploymentConfig
+    metadata:
+      name: '${NAME}-ha-deployment'
+    spec:
+      minReadySeconds: 30
+      progressDeadlineSeconds: 600
+      replicas: 2
+      selector:
+        app: wso2is
+        deployment: wso2is
+        monitoring: jmx
+      strategy:
+        rollingParams:
+          maxSurge: 1
+          maxUnavailable: 0
+        type: Rolling
+      template:
+        metadata:
+          labels:
+            app: wso2is
+            deployment: wso2is
+            monitoring: jmx
+        spec:
+          containers:
+            - resources:
+                limits:
+                  cpu: '${RESOURCES_LIMITS_CPU}'
+                  memory: '${RESOURCES_LIMITS_MEMORY}'
+                requests:
+                  cpu: '${RESOURCES_REQUEST_CPU}'
+                  memory: '${RESOURCES_REQUEST_MEMORY}'
+              lifecycle:
+                preStop:
+                  exec:
+                    command:
+                      - sh
+                      - '-c'
+                      - '${WSO2_SERVER_HOME}/bin/wso2server.sh stop'
+              name: wso2is
+              env:
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: status.podIP
+                - name: HOST_NAME
+                  value: wso2is
+                - name: HOST_NAME_WITH_CLUSTER_IP
+                  value: '${HOST_NAME_WITH_CLUSTER_IP}'
+              ports:
+                - containerPort: 9763
+                  protocol: TCP
+                - containerPort: 9443
+                  protocol: TCP
+              imagePullPolicy: IfNotPresent
+              volumeMounts:
+                - name: identity-server-log-conf
+                  mountPath: >-
+                    /home/wso2carbon/wso2-config-volume/repository/conf/log4j2.properties
+                  subPath: log4j2.properties
+                - name: identity-server-conf
+                  mountPath: >-
+                    /home/wso2carbon/wso2-config-volume/repository/conf/deployment.toml
+                  subPath: deployment.toml
+                - name: wso2is-keystore
+                  mountPath: >-
+                    /home/wso2carbon/wso2-config-volume/repository/resources/security/
+                - name: identity-secret-conf
+                  mountPath: >-
+                    /home/wso2carbon/wso2-config-volume/repository/conf/security/
+                - name: identity-server-bin
+                  mountPath: /home/wso2carbon/wso2-config-volume/bin/wso2server.sh
+                  subPath: wso2server.sh
+                - name: cipher-pass
+                  mountPath: /home/wso2carbon/wso2is-5.10.0/password-persist
+                  subPath: password-persist
+                - name: wso2is-userstore
+                  mountPath: /home/wso2carbon/wso2-config-volume/repository/deployment/server/userstores
+              image: '${WSO2_IS_IMAGE_NAME}'
+          securityContext:
+            runAsUser: 0
+          serviceAccount: '${WSO2_IS_SERVICE_ACCOUNT_NAME}'
+          serviceAccountName: '${WSO2_IS_SERVICE_ACCOUNT_NAME}'
+          terminationGracePeriodSeconds: 30
+          volumes:
+            - configMap:
+                defaultMode: 420
+                name: identity-server-conf
+              name: identity-server-conf
+            - configMap:
+                defaultMode: 420
+                name: identity-server-log-conf
+              name: identity-server-log-conf
+            - configMap:
+                name: identity-secret-conf
+              name: identity-secret-conf
+            - name: cipher-pass
+              secret:
+                secretName: cipher-pass
+            - name: wso2is-keystore
+              secret:
+                secretName: wso2is-keystore
+            - name: wso2is-userstore
+              persistentVolumeClaim:
+                claimName: wso2is-userstore
+            - configMap:
+                name: identity-server-bin
+              name: identity-server-bin
+      triggers:
+        - type: ConfigChange
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: '${NAME}-pattern-ha-service'
+    spec:
+      selector:
+        app: wso2is
+        monitoring: jmx
+      type: ClusterIP
+      ports:
+        - name: servlet-http
+          port: 9763
+          protocol: TCP
+          targetPort: 9763
+        - name: servlet-https
+          port: 9443
+          protocol: TCP
+          targetPort: 9443
+  - apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: '${HOST_NAME_WITHOUT_CLUSTER_IP}'
+    spec:
+      port:
+        targetPort: servlet-https
+      tls:
+        insecureEdgeTerminationPolicy: Redirect
+        termination: passthrough
+      to:
+        kind: Service
+        name: wso2is-pattern-ha-service
+parameters:
+  - name: OPENSHIFT_PROJECT_NAME
+    displayName: Name of the OpenShift project.
+    value: wso2
+    required: true
+  - name: NAME
+    displayName: Name of the deployment.
+    value: wso2is
+    required: true
+  - name: HOST_NAME_WITHOUT_CLUSTER_IP
+    displayName: host name for the setup without cluster ip
+    value: idam
+    required: true
+  - name: HOST_NAME_WITH_CLUSTER_IP
+    displayName: host name for the setup with cluster ip
+    value: >-
+      idam-wso2.integrationcluster-839974599f45dbdeb64e49d6d23d3c3f-0000.eu-de.containers.appdomain.cloud
+    required: true
+  - name: REPLICAS
+    displayName: Number of replicas
+    value: '2'
+    required: true
+  - name: WSO2_IS_IMAGE_NAME
+    displayName: WSO2 Identity Server image name
+    value: 'registry.hub.docker.com/inthirakumaaran/wso2is:latest'
+    required: true
+  - name: RESOURCES_LIMITS_CPU
+    displayName: Set a CPU resource limits
+    value: 4000m
+    required: true
+  - name: RESOURCES_LIMITS_MEMORY
+    displayName: Set a memory resource limits
+    value: 4Gi
+    required: true
+  - name: RESOURCES_REQUEST_CPU
+    displayName: Set a minimum CPU resource limits
+    value: 2000m
+    required: true
+  - name: RESOURCES_REQUEST_MEMORY
+    displayName: Set a minimum memory resource limits
+    value: 2Gi
+    required: true
+  - name: WSO2_IS_SERVICE_ACCOUNT_NAME
+    displayName: test
+    value: wso2svc-account
+    required: true
+  - name: USER_STORE_PV
+    displayName: userstore persistence volume
+    value: pvc-5b4bf418-cb49-4135-b0bf-2bf1fe13b6ae
+    required: true
+
